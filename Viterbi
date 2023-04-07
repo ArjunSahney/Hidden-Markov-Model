@@ -1,0 +1,245 @@
+// Authors: Arjun Sahney and Caleb Ash
+
+
+import java.io.BufferedReader;
+import java.io.FileNotFoundException;
+import java.io.FileReader;
+import java.io.IOException;
+import java.sql.SQLOutput;
+import java.util.*;
+
+public class Viterbi {
+    // initializing data structures for HMM graph 
+    public static String start;
+
+    public static HashMap<String, HashMap<String, Double>> transitionNumber;
+
+    public static HashMap<String, HashMap<String, Double>> observationNumber;
+
+    public static ArrayList<String> tagList;
+
+    // constructor 
+    public Viterbi(String start) {
+        Viterbi.start = start;
+        transitionNumber = new HashMap<>();
+        observationNumber = new HashMap<>();
+    }
+
+    // trial run 
+    public static void main(String[] args) throws IOException {
+        Viterbi v = new Viterbi("start");
+        Training("PS5/brown-train-sentences.txt", "PS5/brown-train-tags.txt");
+        System.out.println(transitionNumber);
+        System.out.println(VitAlgorithm("PS5/brown-test-sentences.txt"));
+
+    }
+    // Method to process a filename and accurately categorize POS 
+
+    public static List<String> VitAlgorithm(String filename) throws IOException {
+        BufferedReader input = new BufferedReader(new FileReader(filename));
+        ArrayList<String> observations = new ArrayList<>();
+        String str="", line;
+
+        while ((line = input.readLine()) != null) {
+            String[] words = line.split(" ");
+            observations.addAll(Arrays.asList(words));
+        }
+
+        System.out.println(observations);
+        // initializing next score
+        double nextScore;
+        // all current (or previous states)
+        HashSet<String> currStates = new HashSet<>();
+        currStates.add(start);
+        Map<String, String> backtrace = new HashMap<>();
+        Map<String, Double> currScores = new HashMap<>();
+        //Putting in a starting value just to have
+        currScores.put(start, 0.0);
+
+        // for each word in the list -- starting the loop
+        for (String observation : observations) {
+            HashSet<String> nextStates = new HashSet<>();
+            Map<String, Double> nextScores = new HashMap<>();
+            // for each current state
+            for (String state : currStates) {
+                // for each possible transition state -- go through each transition to get tags
+                for (String nextState : transitionNumber.get(state).keySet()) {
+                    // add each transition/tag to next state
+                    nextStates.add(nextState);
+                    // if word is not in the tag, subtract unseen score
+                    if (!observationNumber.get(nextState).containsKey(observation)) {
+                        nextScore = currScores.get(state) + transitionNumber.get(state).get(nextState) - 10.0;
+                    } else {
+                        nextScore = currScores.get(state) + transitionNumber.get(state).get(nextState)
+                                + observationNumber.get(nextState).get(observation);
+                    }
+                    // if next scores/winners list doesn't have next score || next score is greater than what is in
+                    if (!nextScores.containsKey(nextState) || nextScore > nextScores.get(nextState)) {
+                        // update next state with next score
+                        nextScores.put(nextState, nextScore);
+                        backtrace.put(observation + "=" + nextState, state);
+                    }
+                }
+            }
+            currStates = nextStates;
+            currScores = nextScores;
+        }
+        // perform backtrace
+        String maxState = "";
+        double maxScore = -1000000;
+        for (String state : currStates) {
+            double score = currScores.get(state);
+            if (score > maxScore) {
+                maxScore = score;
+                maxState = state;
+            }
+        }
+        ArrayList<String> list = new ArrayList<>();
+        list.add(maxState);
+        for (int i = observations.size() - 1; i > 0; i--) {
+            String observation = observations.get(i);
+            String state = backtrace.get(observation + "=" + maxState);
+            list.add(state);
+            maxState = state;
+        }
+        Collections.reverse(list);
+        return list;
+    }
+
+    // graph creation and training
+    public static void Training(String sentences, String tags) throws IOException {
+        // reading both files
+        int counter = 0;
+        int mainCounter = 0;
+        BufferedReader sentenceFile = new BufferedReader(new FileReader(sentences));
+        BufferedReader tagFile = new BufferedReader(new FileReader(tags));
+        String str = "", sentence, tag;
+        ArrayList<ArrayList<String>> wordList = new ArrayList<>();
+        while ((sentence = sentenceFile.readLine()) != null) {
+            String[] words = sentence.split(" ");
+            ArrayList<String> sublist = new ArrayList<>(Arrays.asList(words));
+            sublist.remove(sublist.size()-1);
+            wordList.add(counter, sublist);
+            counter++;
+        }
+        while ((tag = tagFile.readLine()) != null) {
+            String[] pos = tag.split(" ");
+            tagList = new ArrayList<>(Arrays.asList(pos));
+            for (int i = 0; i < tagList.size() - 1; i++) {// looping over the size but discounting the .
+                if (i > 0) { // for non-start transitions
+                    // if transition list does not have state, instantiate state and transition
+                    if (!transitionNumber.containsKey(tagList.get(i - 1))) {
+                        HashMap<String, Double> tran = new HashMap<>();
+                        tran.put(tagList.get(i), 1.0);
+                        transitionNumber.put(tagList.get(i - 1), tran);
+                    } // if transition list contains state, but doesn't contain transition, add transition
+                    else if (!transitionNumber.get(tagList.get(i - 1)).containsKey(tagList.get(i))) {
+                        HashMap<String, Double> tran = transitionNumber.get(tagList.get(i - 1));
+                        tran.put(tagList.get(i), 1.0);
+                    }
+                    else { // if transition list contains both state and transition state, increment
+                        HashMap<String, Double> tran = transitionNumber.get(tagList.get(i - 1));
+                        double number = tran.get(tagList.get(i));
+                        tran.put(tagList.get(i), number + 1);
+                        transitionNumber.put(tagList.get(i - 1), tran);
+
+                    }
+                } else {
+                    if (!transitionNumber.containsKey("start")) {
+                        HashMap<String, Double> tran = new HashMap<>();
+                        tran.put(tagList.get(i), 1.0);
+                        transitionNumber.put("start", tran);
+                    }
+                    else if (transitionNumber.containsKey("start") && !transitionNumber.get("start").containsKey(tagList.get(i))) {
+                        HashMap<String, Double> tran = transitionNumber.get("start");
+                        tran.put(tagList.get(i), 1.0);
+                    } else {
+                        HashMap<String, Double> tran = transitionNumber.get("start");
+                        double number = tran.get(tagList.get(i));
+                        tran.put(tagList.get(i), number + 1);
+                        transitionNumber.put("start", tran);
+                    }
+                }
+
+                // observation list:
+                if (!observationNumber.containsKey(tagList.get(i))) {
+                    HashMap<String, Double> tran = new HashMap<>();
+                    tran.put(wordList.get(mainCounter).get(i), 1.0);
+                    observationNumber.put(tagList.get(i), tran);
+                }
+                else if (!observationNumber.get(tagList.get(i)).containsKey(wordList.get(mainCounter).get(i))){
+                    HashMap<String, Double> tran = observationNumber.get(tagList.get(i));
+                    tran.put(wordList.get(mainCounter).get(i), 1.0);
+                    observationNumber.put(tagList.get(i), tran);
+                } else {
+                    HashMap<String, Double> tran = observationNumber.get(tagList.get(i));
+                    double number = tran.get(wordList.get(mainCounter).get(i));
+                    tran.put(wordList.get(mainCounter).get(i), number + 1);
+                    observationNumber.put(tagList.get(i), tran);
+
+                }
+            }
+            mainCounter++;
+        }
+
+
+        sentenceFile.close();
+        tagFile.close();
+
+        // calculating probabilities transition map:
+        double denominator = 0.0;
+        for (Map.Entry<String, HashMap<String, Double>> submaps: transitionNumber.entrySet()){
+            for (Map.Entry<String, Double> entry : submaps.getValue().entrySet()) {
+                double number = entry.getValue();
+                denominator += number;
+            }
+            for (String s: submaps.getValue().keySet()){
+                double value = submaps.getValue().get(s);
+                double prob = value/denominator;
+                prob = Math.log(prob);
+                submaps.getValue().put(s, prob);
+            }
+            denominator = 0.0;
+
+        }
+        denominator=0.0;
+        // calculating probabilities observation map:
+        for (Map.Entry<String, HashMap<String, Double>> submaps: observationNumber.entrySet()){
+            for (Map.Entry<String, Double> entry : submaps.getValue().entrySet()) {
+                double number = entry.getValue();
+                denominator += number;
+            }
+            for (String s: submaps.getValue().keySet()){
+                double value = submaps.getValue().get(s);
+                double prob = value/denominator;
+                prob = Math.log(prob);
+                submaps.getValue().put(s, prob);
+            }
+            denominator=0.0;
+
+        }
+
+    }
+    // method to check accuracy 
+    public static double accuracy(String actualFile, ArrayList<String> predictedList) throws FileNotFoundException {
+        double numerator =0;
+        BufferedReader input = new BufferedReader(new FileReader(actualFile));
+        String str = "", tag;
+        ArrayList<String> actualList = new ArrayList<>();
+        while ((tag = input.readLine()) != null) {
+            String[] tags = tag.split(" ");
+            actualList.add(Arrays.toString(tags));
+        }
+
+        for (int i = 0; i < actualList.size(); i++){
+            if (Objects.equals(actualList.get(i), predictedList.get(i))){
+                numerator+=1;
+            }
+        }
+
+        return (numerator / actualList.size())*100;
+
+    }
+
+
+}
